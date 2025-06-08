@@ -1,0 +1,68 @@
+import os
+import discord
+import requests
+import json
+
+# --- Load configuration from environment variables ---
+# This is the secure way to handle secrets in Docker
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+HA_WEBHOOK_URL = os.getenv('HA_WEBHOOK_URL')
+
+# --- Basic checks to ensure configuration is present ---
+if not BOT_TOKEN:
+    print("FATAL ERROR: BOT_TOKEN environment variable not set.")
+    exit(1)
+
+if not HA_WEBHOOK_URL:
+    print("FATAL ERROR: HA_WEBHOOK_URL environment variable not set.")
+    exit(1)
+
+# --- Define the necessary Discord Intents ---
+# We need to read messages, but don't need presence or member lists.
+intents = discord.Intents.default()
+intents.message_content = True
+intents.dm_messages = True
+
+client = discord.Client(intents=intents)
+
+@client.event
+async def on_ready():
+    """Prints a confirmation message when the bot logs in successfully."""
+    print(f'Logged in as {client.user}')
+    print('Ready to forward DMs to Home Assistant.')
+    print('-----------------------------------------')
+
+@client.event
+async def on_message(message):
+    """This function runs every time a message is received."""
+    # Ignore messages sent by the bot itself to prevent loops
+    if message.author == client.user:
+        return
+
+    # Check if the message is a Direct Message (DM)
+    if isinstance(message.channel, discord.DMChannel):
+        print(f"Received DM from {message.author}: {message.content}")
+
+        # Prepare the data payload to send to Home Assistant
+        payload = {
+            'author_name': message.author.name,
+            'author_id': str(message.author.id),
+            'content': message.content
+        }
+
+        # Send the data to the Home Assistant Webhook URL
+        try:
+            response = requests.post(
+                HA_WEBHOOK_URL,
+                headers={'Content-Type': 'application/json'},
+                json=payload,
+                timeout=10 # Set a 10-second timeout
+            )
+            # Check if the request was successful
+            response.raise_for_status()
+            print(f"Successfully forwarded message to Home Assistant (Status: {response.status_code})")
+        except requests.exceptions.RequestException as e:
+            print(f"ERROR: Failed to forward message to Home Assistant: {e}")
+
+# --- Run the bot ---
+client.run(BOT_TOKEN)
